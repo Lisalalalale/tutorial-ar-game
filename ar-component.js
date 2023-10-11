@@ -41,6 +41,7 @@ class HitTest {
 		this.session = this.renderer.xr.getSession();
 		
 		if (options.space) {
+			this.space = options.space;
 			this.xrHitTestSource = await this.session.requestHitTestSource(options);
 		} else if ( options.profile ) {
 			this.xrHitTestSource = await this.session.requestHitTestSourceForTransientInput(options);
@@ -61,6 +62,11 @@ class HitTest {
 					const results = hitTestResults[0].results;
 					if (results.length > 0) {
 						const pose = results[0].getPose(refSpace);
+						return{
+							pose,
+							inputSource: this.xrHitTestSource,
+							
+						};
 						return pose;
 					} else {
 						return false
@@ -85,7 +91,7 @@ class HitTest {
 // Needs the master version of AFrame and the hit-test optional feature
 // Add ar-hit-test to the reticle
 const hitTestCache = new Map();
-/*AFRAME.registerComponent("ar-hit-test", {
+AFRAME.registerComponent("ar-hit-test", {
 	schema: {
 		target: { type: "selector" }
 	},
@@ -142,9 +148,16 @@ const hitTestCache = new Map();
 	},
 	tick: function () {
 		const frame = this.el.sceneEl.frame;
+
+		
 		if (this.hitTest) {
-			const pose = this.hitTest.doHit(frame);
+			const result = this.hitTest.doHit(frame);
 			if (pose) {
+				const {pose, inputSource} = result;
+				this.hasFoundAPose = true;
+				this.currentControllerPose = frame.getPose(inputSource, this.el.sceneEl.renderer.xr.getReferenceSpace());
+				
+
 				this.el.setAttribute('visible', true);
 				this.el.setAttribute("position", pose.transform.position);
 				this.el.object3D.quaternion.copy(pose.transform.orientation);
@@ -152,4 +165,4 @@ const hitTestCache = new Map();
 		} 
 	},
    
-});*/
+});
