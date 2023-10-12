@@ -31,7 +31,7 @@ class HitTest {
 
 		renderer.xr.addEventListener("sessionend", () => this.xrHitTestSource = null);
 		renderer.xr.addEventListener("sessionstart", () => this.sessionStart(options));
-		
+
 		if (this.renderer.xr.isPresenting) {
 			this.sessionStart(options)
 		}
@@ -39,14 +39,14 @@ class HitTest {
 
 	async sessionStart(options) {
 		this.session = this.renderer.xr.getSession();
-		
+
 		if (options.space) {
 			this.space = options.space;
 			this.xrHitTestSource = await this.session.requestHitTestSource(options);
-		} else if ( options.profile ) {
+		} else if (options.profile) {
 			this.xrHitTestSource = await this.session.requestHitTestSourceForTransientInput(options);
 			this.transient = true;
-		} 
+		}
 	}
 
 	doHit(frame) {
@@ -62,10 +62,10 @@ class HitTest {
 					const results = hitTestResults[0].results;
 					if (results.length > 0) {
 						const pose = results[0].getPose(refSpace);
-						return{
-							pose,
-							inputSource: this.xrHitTestSource,
-							
+						return {
+							inputSpace: hitTestResults[0].inputSource.targetRaySpace,
+							pose
+
 						};
 						return pose;
 					} else {
@@ -93,7 +93,8 @@ class HitTest {
 const hitTestCache = new Map();
 AFRAME.registerComponent("ar-hit-test", {
 	schema: {
-		target: { type: "selector" }
+		target: { type: "selector" },
+		doHitTest: {default: true}
 	},
 
 	init: function () {
@@ -109,9 +110,10 @@ AFRAME.registerComponent("ar-hit-test", {
 
 			// Default to selecting through the face
 			const viewerSpace = await session.requestReferenceSpace('viewer');
-			this.hitTest = new HitTest(renderer, {
+			const viewerHitTest = new HitTest(renderer, {
 				space: viewerSpace
 			});
+			this.hitTest=viewerHitTest;
 
 			// These are transient inputs so need to be handled seperately
 			const profileToSupport = "generic-touchscreen";
@@ -120,6 +122,10 @@ AFRAME.registerComponent("ar-hit-test", {
 			});
 
 			session.addEventListener('selectstart', ({ inputSource }) => {
+
+				
+
+				
 				if (inputSource.profiles[0] === profileToSupport) {
 					this.hitTest = transientHitTest;
 				} else {
@@ -132,16 +138,31 @@ AFRAME.registerComponent("ar-hit-test", {
 			});
 
 			session.addEventListener('selectend', ({ inputSource }) => {
-				this.el.emit('select', { inputSource });
-				this.el.setAttribute('visible', false);
-				this.hitTest = null;
+				this.needSelectEventForInputSource = inputSource;
+				if(this.data.doHitTest)return;
+ 				if (this.hasFoundAPose) {
+					this.el.setAttribute('visible', false);
+					this.hitTest = null;
 
-				if (this.data.target) {
-					const target = this.data.target;				
-					target.setAttribute("position", this.el.getAttribute("position"));
-					target.object3D.quaternion.copy(this.el.object3D.quaternion);
-					target.setAttribute("visible", true);
+					//For transiet input sources fall bacak to viewer hit testing
+				// after a short while after the transient input source is no longer available
+				//to give a consistent interaction experience
+				if(inputSource.profiles[0] === profileToSupport){
+					setTimeout(() => {
+						this.hitTest= viewerHitTest;
+					},300 )
+					
+
 				}
+
+					if (this.data.target) {
+						const target = this.data.target;
+						target.setAttribute("position", this.el.getAttribute("position"));
+						target.object3D.quaternion.copy(this.el.object3D.quaternion);
+						target.setAttribute("visible", true);
+					}
+				}
+
 
 			});
 		});
@@ -149,20 +170,41 @@ AFRAME.registerComponent("ar-hit-test", {
 	tick: function () {
 		const frame = this.el.sceneEl.frame;
 
-		
-		if (this.hitTest) {
+		if(!frame) return;
+
+		if(this.needSelectEventForInputSource){
+			const inputSource = this.needSelectEventForInputSource;
+			this.needSelectEventForInputSource = false;
+			
+			const space = inputSource.targetRaySpace;
+			try{
+				const pose= frame.getPose(inputSpace, this.el.sceneEl.renderer.xr.getReferenceSpace());
+				this.el.emit('select', { inputSource, pose });
+			}catch{
+				console.log(e)
+			}
+			
+			
+		}
+
+		if (this.hitTest && this.data.doHitTest) {
 			const result = this.hitTest.doHit(frame);
 			if (pose) {
-				const {pose, inputSource} = result;
+				const { pose, inputSpace } = result;
 				this.hasFoundAPose = true;
-				this.currentControllerPose = frame.getPose(inputSource, this.el.sceneEl.renderer.xr.getReferenceSpace());
+				try{
+					this.currentControllerPose = frame.getPose(inputSpace, this.el.sceneEl.renderer.xr.getReferenceSpace());
+				}catch(e){
+					console.log(e);
+				}
 				
+
 
 				this.el.setAttribute('visible', true);
 				this.el.setAttribute("position", pose.transform.position);
 				this.el.object3D.quaternion.copy(pose.transform.orientation);
 			}
-		} 
+		}
 	},
-   
+
 });
